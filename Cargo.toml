@@ -1,6 +1,6 @@
 [package]
 name = "slottle"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["visig <visig@protonmail.ch>"]
 edition = "2018"
 
@@ -26,5 +26,5 @@ default = ["fuzzy_fns"]
 retrying = ["retry"]
 fuzzy_fns = ["rand"]
 
-[package.metadata."docs.rs"]
+[package.metadata.docs.rs]
 all-features = true

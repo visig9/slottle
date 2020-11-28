@@ -5,7 +5,7 @@ authors = ["visig <visig@protonmail.ch>"]
 edition = "2018"
 
 description = "A throttle pool library designed for thread-based concurrency."
-keywords = ["throttle", "pool", "sync", "thread"]
+keywords = ["throttle", "pool", "sync", "threading"]
 categories = ["concurrency"]
 
 license = "MIT"

@@ -10,34 +10,69 @@ For example, a web scraping tool may treat domain name as resource id to control
 
 ## Example
 
-```rust
-use std::time::Duration;
-use slottle::ThrottlePool;
-use rayon::prelude::*;
+````rust
+//! ```cargo
+//! [dependencies]
+//! rayon = "1.5.0"
+//! slottle = "0.1.0"
+//! ```
 
-// Create ThrottlePool to store some state.
-//
-// In here `id` is `bool` type for demonstration. If you're writing
-// a web spider, type of `id` might be `url::Host`.
-let throttles: ThrottlePool<bool> =
-    ThrottlePool::builder()
-        .interval(Duration::from_millis(1)) // set interval to 1 ms
-        .concurrent(2)                      // 2 concurrent for each throttle
+use rayon::prelude::*;
+use slottle::ThrottlePool;
+use std::time::{Duration, Instant};
+
+fn main() {
+    // make sure we have enough of threads can be blocked:
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build_global()
+        .unwrap();
+
+    // Create ThrottlePool.
+    //
+    // In here `id` is `bool` type for demonstration.
+    // If you're writing a web spider, type of `id` might should be `url::Host`.
+    let throttles: ThrottlePool<bool> = ThrottlePool::builder()
+        .interval(Duration::from_millis(10)) // set interval to 10ms
+        .concurrent(2) // set concurrent to 2
         .build()
         .unwrap();
 
-// make sure you have enough of threads. For example:
-rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
+    // NOTE: according previous config, expected access speed = 2 per 10ms = 1 per 5ms (in each throttle)
 
-let results: Vec<i32> = vec![1, 2, 3, 4, 5]
-    .into_par_iter()        // run parallel
-    .map(|x| throttles.run(
-        x == 5,             // 5 in throttle `true`, 1,2,3,4 in throttle `false`
-        || {x + 1},         // here is the operation should be throttled
-    ))
-    .collect();
+    let startd_time = Instant::now();
 
-assert_eq!(results, vec![2, 3, 4, 5, 6,]);
+    let results: Vec<i32> = vec![1, 2, 3, 4, 5, 6] // total 6 item in here!
+        .into_par_iter() // run parallel
+        .map(|x| {
+            throttles.run(
+                x >= 5, // 5,6 in throttle id == `true` & 1,2,3,4 in throttle id == `false`
+                // here is the operation we want to throttling
+                || {
+                    println!(
+                        "job {} started, time passed: {}s",
+                        x,
+                        startd_time.elapsed().as_secs_f64()
+                    );
+                    x + 1
+                },
+            )
+        })
+        .collect();
+
+    assert_eq!(results, vec![2, 3, 4, 5, 6, 7]);
+}
+````
+
+Output:
+
+```
+job 1 started, time passed: 0.000016512s
+job 5 started, time passed: 0.000032532s
+job 3 started, time passed: 0.005074456s
+job 6 started, time passed: 0.005087911s
+job 4 started, time passed: 0.010070142s
+job 2 started, time passed: 0.015075837s
 ```
 
 Please check online documents for more detail.

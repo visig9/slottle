@@ -183,7 +183,7 @@ impl<K: Hash + Eq> ThrottlePool<K> {
         throttle.run(f)
     }
 
-    /// Run some function in particular throttle & retrying if function return Err(T).
+    /// Run some function in particular throttle & retrying if function return `Err(T)`.
     ///
     /// This operation may block current thread by throttle current state and configuration.
     ///
@@ -331,14 +331,15 @@ impl Throttle {
     /// thread 1:   |f()--|s()------|f()--s1--r1--s2--r2--s3----r3--|f()-----|......|..
     ///             |   interval    |   interval    |...............|   interval    |
     ///                                   ^^^^    ^^^^    ^^^^^^
-    ///                 Each retry delay durations control by the retry delay iterator (rseq).
-    ///                 It would not add extra interval between them and interrupt the sequence with other job.
+    ///                 Each retry-delay-duration control by the "retry delay iterator" (rseq).
+    ///                 It will not add normal interval between two of retries and throttle
+    ///                 will also not interrupt the retry sequence by other pending jobs.
     ///
     /// time pass ----->
     /// ```
     ///
-    /// If want to obey interval for each retry, just retry the `throttle.run(op)` external by
-    /// youself.
+    /// If want to let `Throttle` obey interval for each retry, just re-run `throttle.run(op)`
+    /// multiple time by youself.
     ///
     /// # Example
     ///

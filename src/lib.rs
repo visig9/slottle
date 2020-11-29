@@ -136,7 +136,9 @@
 //!     time_passed_ms_vec
 //!         .into_iter()
 //!         .zip(expected_time_passed_ms.iter())
-//!         .for_each(|(value, expected)| assert_eq_approx("time_passed (ms)", value, *expected, 1.0));
+//!         .for_each(|(value, expected)| {
+//!             assert_eq_approx("time_passed (ms)", value, *expected, 1.0)
+//!         });
 //! }
 //!
 //! /// assert value approximate equal to expected value.
@@ -185,7 +187,7 @@ use std::{
 };
 use std_semaphore::Semaphore;
 
-type FuzzyFn = fn(Duration) -> Duration;
+type FuzzyFn = fn(interval: Duration) -> Duration;
 
 /// A [`Throttle`] pool to restrict the resource access speed for multiple resources.
 ///
@@ -631,10 +633,10 @@ pub mod fuzzy_fns {
     use rand::prelude::*;
     use std::time::Duration;
 
-    /// Generate a new [`Duration`] between `0`..`2 * duration` by uniform distribution.
-    pub fn uniform(duration: Duration) -> Duration {
+    /// Generate a new [`Duration`] between `0..(2 * interval)` by uniform distribution.
+    pub fn uniform(interval: Duration) -> Duration {
         let jitter = random::<f64>() * 2.0;
-        Duration::from_secs_f64(duration.as_secs_f64() * jitter)
+        Duration::from_secs_f64(interval.as_secs_f64() * jitter)
     }
 
     #[cfg(test)]

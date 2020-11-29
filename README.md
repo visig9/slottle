@@ -51,7 +51,7 @@ fn main() {
                 || {
                     let time_passed_ms = started_time.elapsed().as_secs_f64() * 1000.0;
                     println!(
-                        "[throttle: {:>5}] allowed job {} started at: {:.2}ms",
+                        "[throttle: {:>5}] allowed job {} to start at: {:.2}ms",
                         x >= 5, x, time_passed_ms,
                     );
 
@@ -72,7 +72,9 @@ fn main() {
     time_passed_ms_vec
         .into_iter()
         .zip(expected_time_passed_ms.iter())
-        .for_each(|(value, expected)| assert_eq_approx("time_passed (ms)", value, *expected, 1.0));
+        .for_each(|(value, expected)| {
+            assert_eq_approx("time_passed (ms)", value, *expected, 1.0)
+        });
 }
 
 /// assert value approximate equal to expected value.

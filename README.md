@@ -1,6 +1,6 @@
 # slottle
 
-This is a simple Rust library provide thread-based throttle pool. It can dynamic create multiple throttles by user given resource id.
+A simple Rust library provide thread-based throttle pool. It can dynamic create multiple throttles by user given resource id.
 
 For example, a web scraping tool may treat domain name as resource id to control access speed of each hosts in generic way. User can create multiple pools at the same time, each one have different configurations for different situations.
 

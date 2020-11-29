@@ -79,47 +79,100 @@
 //! # Examples
 //!
 //! ```rust
-//! use std::time::Duration;
-//! use slottle::ThrottlePool;
 //! use rayon::prelude::*;
+//! use slottle::ThrottlePool;
+//! use std::time::{Duration, Instant};
 //!
-//! // Create ThrottlePool to store some state.
-//! //
-//! // In here `id` is `bool` type for demonstration. If you're writing
-//! // a web spider, type of `id` might be `url::Host`.
-//! let throttles: ThrottlePool<bool> =
-//!     ThrottlePool::builder()
-//!         .interval(Duration::from_millis(1)) // set interval to 1 ms
-//!         .concurrent(2)                      // 2 concurrent for each throttle
+//! fn main() {
+//!     // Make sure we have enough of threads can be blocked.
+//!     // Here we use rayon as example but you can choice any thread implementation.
+//!     rayon::ThreadPoolBuilder::new()
+//!         .num_threads(8)
+//!         .build_global()
+//!         .unwrap();
+//!
+//!     // Create ThrottlePool.
+//!     //
+//!     // In here `id` is `bool` type for demonstration.
+//!     // If you're writing a web spider, type of `id` might should be `url::Host`.
+//!     let throttles: ThrottlePool<bool> = ThrottlePool::builder()
+//!         .interval(Duration::from_millis(10)) // set interval to 10ms
+//!         .concurrent(2) // set concurrent to 2
 //!         .build()
 //!         .unwrap();
 //!
-//! // make sure you have enough of threads. For example:
-//! rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
+//!     // HINT: according previous config, expected access speed is
+//!     // 2 per 10ms = 1 per 5ms (in each throttle)
 //!
-//! let results: Vec<i32> = vec![1, 2, 3, 4, 5]
-//!     .into_par_iter()        // run parallel
-//!     .map(|x| throttles.run(
-//!         x == 5,             // 5 in throttle `true`, 1,2,3,4 in throttle `false`
-//!         || {x + 1},         // here is the operation should be throttled
-//!     ))
-//!     .collect();
+//!     let started_time = Instant::now();
 //!
-//! assert_eq!(results, vec![2, 3, 4, 5, 6,]);
+//!     let mut time_passed_ms_vec: Vec<f64> = vec![1, 2, 3, 4, 5, 6]
+//!         .into_par_iter()
+//!         .map(|x| {
+//!             throttles.run(
+//!                 x >= 5, // 5,6 in throttle `true` & 1,2,3,4 in throttle `false`
+//!                 // here is the operation we want to throttling
+//!                 || {
+//!                     let time_passed_ms = started_time.elapsed().as_secs_f64() * 1000.0;
+//!                     println!(
+//!                         "[throttle: {:>5}] allowed job {} to start at: {:.2}ms",
+//!                         x >= 5, x, time_passed_ms,
+//!                     );
+//!
+//!                     // // you can also add some long-running task to see how throttle work
+//!                     // std::thread::sleep(Duration::from_millis(20));
+//!
+//!                     time_passed_ms
+//!                 },
+//!             )
+//!         })
+//!         .collect();
+//!
+//!     // Verify all time_passed_ms as we expected...
+//!
+//!     time_passed_ms_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
+//!
+//!     let expected_time_passed_ms = [0.0, 0.0, 5.0, 5.0, 10.0, 15.0];
+//!     time_passed_ms_vec
+//!         .into_iter()
+//!         .zip(expected_time_passed_ms.iter())
+//!         .for_each(|(value, expected)| assert_eq_approx("time_passed (ms)", value, *expected, 1.0));
+//! }
+//!
+//! /// assert value approximate equal to expected value.
+//! fn assert_eq_approx(name: &str, value: f64, expected: f64, espilon: f64) {
+//!     let expected_range = (expected - espilon)..(expected + espilon);
+//!     assert!(
+//!         expected_range.contains(&value),
+//!         "{}: {} out of accpetable range: {:?}",
+//!         name, value, expected_range,
+//!     );
+//! }
+//! ```
+//!
+//! Output:
+//!
+//! ```text
+//! [throttle: false] allowed job 1 to start at: 0.05ms
+//! [throttle:  true] allowed job 5 to start at: 0.06ms
+//! [throttle: false] allowed job 2 to start at: 5.10ms
+//! [throttle:  true] allowed job 6 to start at: 5.12ms
+//! [throttle: false] allowed job 3 to start at: 10.11ms
+//! [throttle: false] allowed job 4 to start at: 15.11ms
 //! ```
 //!
 //!
 //!
 //! # Features
 //!
-//! - `fuzzy_fns`: (optional) Offer a helper function can fuzzing the `interval` in all operations.
+//! - `fuzzy_fns`: (optional) Offer helper function can fuzzing the `interval` in all operations.
 //! - `retrying`: (optional, **experimental**) Add `run_retry(...)` APIs to support [retry] beside the standard throttle operation.
 //!
 //!
 //!
-//! # Other
+//! # Naming
 //!
-//! Crate name `slottle` is an abbr of "slotted throttle". Which is the original name of current `ThrottlePool`.
+//! Crate name `slottle` is the abbr of "slotted throttle". Which is the original name of `ThrottlePool`.
 
 use std::{
     collections::HashMap,
@@ -136,9 +189,7 @@ type FuzzyFn = fn(Duration) -> Duration;
 
 /// A [`Throttle`] pool to restrict the resource access speed for multiple resources.
 ///
-/// > The generic type `K` is the type of `id`.
-///
-/// See module document for more detail.
+/// See [module](self) document for more detail.
 pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
     interval: Duration,
@@ -187,9 +238,9 @@ impl<K: Hash + Eq> ThrottlePool<K> {
         throttle.run(f)
     }
 
-    /// Run some function in particular throttle & retrying if function return `Err(T)`.
+    /// > ***Experimental**: this API maybe deleted or re-designed in future version.*
     ///
-    /// This operation may block current thread by throttle current state and configuration.
+    /// Run some function in particular throttle & retrying if function return `Err(T)`.
     ///
     /// Check [`Throttle::run_retry()`] for more detail.
     ///
@@ -310,6 +361,28 @@ impl Throttle {
     /// Run some function.
     ///
     /// Call `run(...)` may block current thread by throttle current state and configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use rayon::prelude::*;
+    /// use slottle::{Throttle, retrying};
+    ///
+    /// let throttle = Throttle::builder()
+    ///     .interval(Duration::from_millis(5))
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// let which_round_success: Vec<u32> = vec![3, 2, 1]
+    ///     .into_par_iter()
+    ///     .map(|x| {
+    ///         throttle.run(|| x + 1)  // here
+    ///     })
+    ///     .collect();
+    ///
+    /// assert_eq!(which_round_success, vec![4, 3, 2]);
+    /// ```
     pub fn run<F, T>(&self, f: F) -> T
     where
         F: FnOnce() -> T,
@@ -322,14 +395,16 @@ impl Throttle {
         f()
     }
 
+    /// > ***Experimental**: this API maybe deleted or re-designed in future version.*
+    ///
     /// Run some function & retrying if function return `Err(T)`.
     ///
     /// Call `run_retry(...)` may block current thread by throttle current state and configuration.
-    /// When retrying, the occupied concurrent quota will not release in the half way.
+    /// When retrying, the occupied concurrent quota will not release in the half way:
     /// It will continue occupying until the job fully failed or success finally.
     ///
     /// The `rseq` is a "retry delay iterator" which control how many times it can
-    /// retry and each retry's delay duration.
+    /// retry and each retry's duration of delay.
     ///
     /// # Run chart
     ///
@@ -341,14 +416,11 @@ impl Throttle {
     ///             |   interval    |   interval    |...............|   interval    |
     ///                                   ^^^^    ^^^^    ^^^^^^
     ///                 Each retry-delay-duration control by the "retry delay iterator" (rseq).
-    ///                 It will not add normal interval between two of retries and throttle
-    ///                 will also not interrupt the retry sequence by other pending jobs.
+    ///                 Retrying algorithm wouldn't add `interval` between two of retries.
+    ///                 Throttle wouldn't interrupt the retrying sequence by other pending jobs.
     ///
     /// time pass ----->
     /// ```
-    ///
-    /// If want to let `Throttle` obey interval for each retry, just re-run `throttle.run(op)`
-    /// multiple time by youself.
     ///
     /// # Example
     ///
@@ -376,6 +448,12 @@ impl Throttle {
     ///
     /// assert_eq!(which_round_success, vec![Ok(1), Ok(2), Err(())]);
     /// ```
+    ///
+    /// # Note
+    ///
+    /// If user want to apply `interval` to each retry, and allow other pending jobs
+    /// injected between two of retries, please don't use this API. Just re-run `throttle.run(op)`
+    /// multiple times by youself.
     ///
     /// # Feature
     ///
@@ -587,6 +665,15 @@ mod tests {
     }
 
     #[test]
+    fn throttle_with_concurrent_equal_to_isize_max() {
+        // this case may run out of memory in previous implementation.
+        assert!(Throttle::builder()
+            .concurrent(isize::MAX as u32)
+            .build()
+            .is_some());
+    }
+
+    #[test]
     #[cfg(any(
         target_pointer_width = "8",
         target_pointer_width = "16",
@@ -596,8 +683,6 @@ mod tests {
         assert!(Throttle::builder()
             // If isize::MAX > u32 (mean target_pointer_width = 64 or larger), just
             // cannot compile due to overflow.
-            //
-            // It's hard to test on 64 bit platform
             .concurrent(isize::MAX as u32 + 1)
             .build()
             .is_none());

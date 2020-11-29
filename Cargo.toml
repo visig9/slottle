@@ -22,7 +22,7 @@ rand = { version = "0.7.3", optional = true }
 rayon = "1.5.0"
 
 [features]
-default = ["fuzzy_fns"]
+default = []
 retrying = ["retry"]
 fuzzy_fns = ["rand"]
 

@@ -112,7 +112,7 @@
 //!
 //! # Features
 //!
-//! - `fuzzy_fns`: (default) Offer a helper function can fuzzing the `interval` in all operations.
+//! - `fuzzy_fns`: (optional) Offer a helper function can fuzzing the `interval` in all operations.
 //! - `retrying`: (optional, **experimental**) Add `run_retry(...)` APIs to support [retry] beside the standard throttle operation.
 //!
 //!

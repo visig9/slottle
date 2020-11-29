@@ -1,11 +1,11 @@
 [package]
 name = "slottle"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["visig <visig@protonmail.ch>"]
 edition = "2018"
 
 description = "A throttle pool library designed for thread-based concurrency."
-keywords = ["throttle", "pool", "sync", "threading"]
+keywords = ["throttle", "sync", "threading"]
 categories = ["concurrency"]
 
 license = "MIT"

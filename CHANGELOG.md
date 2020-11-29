@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+
+
+## [0.2.0] - 2020-11-29
+
 ### Changed
 
 - [BREAKING]: `Throttle::fuzzy_fn()` & `ThrottlePool::fuzzy_fn()` now accept

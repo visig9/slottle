@@ -132,7 +132,7 @@ use std::{
 };
 use std_semaphore::Semaphore;
 
-type FuzzyFn = Option<fn(Duration) -> Duration>;
+type FuzzyFn = fn(Duration) -> Duration;
 
 /// A [`Throttle`] pool to restrict the resource access speed for multiple resources.
 ///
@@ -143,7 +143,7 @@ pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
     interval: Duration,
     concurrent: u32,
-    fuzzy_fn: FuzzyFn,
+    fuzzy_fn: Option<FuzzyFn>,
 }
 
 impl<K: Hash + Eq> ThrottlePool<K> {
@@ -160,11 +160,15 @@ impl<K: Hash + Eq> ThrottlePool<K> {
                 .unwrap_or_else(|err| err.into_inner())
                 .entry(id)
                 .or_insert_with(|| {
+                    let mut builder = Throttle::builder();
+                    builder.interval(self.interval).concurrent(self.concurrent);
+
+                    if let Some(fuzzy_fn) = self.fuzzy_fn {
+                        builder.fuzzy_fn(fuzzy_fn);
+                    }
+
                     Arc::new(
-                        Throttle::builder()
-                            .interval(self.interval)
-                            .concurrent(self.concurrent)
-                            .fuzzy_fn(self.fuzzy_fn)
+                        builder
                             .build()
                             .expect("`concurrent` already varified when ThrottlePool created"),
                     )
@@ -225,7 +229,7 @@ impl<K: Hash + Eq> Debug for ThrottlePool<K> {
 pub struct ThrottlePoolBuilder<K: Hash + Eq> {
     interval: Duration,
     concurrent: u32,
-    fuzzy_fn: FuzzyFn,
+    fuzzy_fn: Option<FuzzyFn>,
     phantom: PhantomData<K>,
 }
 
@@ -253,9 +257,14 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
         self
     }
 
-    /// Set fuzzy_fn to modify `interval` each run, default value is `None`.
+    /// Set fuzzy_fn to tweak `interval` for each run, by default no fuzzy_fn
+    /// (interval be used as is).
+    ///
+    /// # Feature
+    ///
+    /// If you enable `fuzzy_fns` then [`crate::fuzzy_fns`] will contain some fuzzy_fn implementations.
     pub fn fuzzy_fn(&mut self, fuzzy_fn: FuzzyFn) -> &mut Self {
-        self.fuzzy_fn = fuzzy_fn;
+        self.fuzzy_fn = Some(fuzzy_fn);
         self
     }
 
@@ -290,7 +299,7 @@ pub struct Throttle {
     interval: Duration,
     concurrent: u32,
 
-    fuzzy_fn: FuzzyFn,
+    fuzzy_fn: Option<FuzzyFn>,
 }
 
 impl Throttle {
@@ -452,7 +461,7 @@ impl Debug for Throttle {
 pub struct ThrottleBuilder {
     interval: Duration,
     concurrent: u32,
-    fuzzy_fn: FuzzyFn,
+    fuzzy_fn: Option<FuzzyFn>,
 }
 
 impl ThrottleBuilder {
@@ -476,9 +485,14 @@ impl ThrottleBuilder {
         self
     }
 
-    /// Set fuzzy_fn to modify `interval` each run, default value is `None`.
+    /// Set fuzzy_fn to tweak `interval` for each run, by default no fuzzy_fn
+    /// (interval be used as is).
+    ///
+    /// # Feature
+    ///
+    /// If you enable `fuzzy_fns` then [`crate::fuzzy_fns`] will contain some fuzzy_fn implementations.
     pub fn fuzzy_fn(&mut self, fuzzy_fn: FuzzyFn) -> &mut Self {
-        self.fuzzy_fn = fuzzy_fn;
+        self.fuzzy_fn = Some(fuzzy_fn);
         self
     }
 
@@ -579,13 +593,9 @@ mod tests {
     #[test]
     fn throttle_with_fuzzy_fn() {
         Throttle::builder()
-            .fuzzy_fn(Some(|_| Duration::default()))
-            .build();
-
-        #[cfg(feature = "fuzzy_fns")]
-        Throttle::builder()
-            .fuzzy_fn(Some(fuzzy_fns::uniform))
-            .build();
+            .fuzzy_fn(|_| Duration::default())
+            .build()
+            .unwrap();
     }
 
     #[test]

@@ -553,13 +553,26 @@ pub mod fuzzy_fns {
     use rand::prelude::*;
     use std::time::Duration;
 
-    /// Generate a new [`Duration`] between `0` ~ `2 * orig_duration` by uniform distribution.
+    /// Generate a new [`Duration`] between `0`..`2 * duration` by uniform distribution.
     pub fn uniform(duration: Duration) -> Duration {
         let jitter = random::<f64>() * 2.0;
-        let secs = ((duration.as_secs() as f64) * jitter).ceil() as u64;
-        let nanos = ((f64::from(duration.subsec_nanos())) * jitter).ceil() as u32;
+        Duration::from_secs_f64(duration.as_secs_f64() * jitter)
+    }
 
-        Duration::new(secs, nanos)
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::time::Duration;
+
+        #[test]
+        fn fuzzy_fn_uniform() {
+            vec![Duration::from_secs(10); 100]
+                .into_iter()
+                .map(uniform)
+                .for_each(|d| {
+                    assert!((Duration::from_secs(0)..Duration::from_secs(20)).contains(dbg!(&d)))
+                });
+        }
     }
 }
 

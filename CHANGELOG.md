@@ -8,6 +8,11 @@
   `fn(Duration) -> Duration` rather than original `Option<fn(Duration) -> Duration>`.
 - [BREAKING]: set `fuzzy_fns` feature as optional.
 
+### Fixed
+
+- `fuzzy_fns::uniform`: let return value include sub-second parts even original
+  interval without any sub-second parts (e.g., `Duration::from_secs(10)`).
+
 
 
 ## [0.1.1] - 2020-11-28

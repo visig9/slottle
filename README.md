@@ -12,7 +12,7 @@ For example, a web scraping tool may treat domain name as resource id to control
 //! ```cargo
 //! [dependencies]
 //! rayon = "1.5.0"
-//! slottle = "0.1.0"
+//! slottle = "0.2.0"
 //! ```
 
 use rayon::prelude::*;

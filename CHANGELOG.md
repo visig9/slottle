@@ -10,7 +10,7 @@
 
 - [BREAKING]: `Throttle::fuzzy_fn()` & `ThrottlePool::fuzzy_fn()` now accept
   `fn(Duration) -> Duration` rather than original `Option<fn(Duration) -> Duration>`.
-- [BREAKING]: set `fuzzy_fns` feature as optional.
+- [BREAKING]: set `fuzzy_fns` feature optional.
 
 ### Fixed
 

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- [BREAKING]: Stop re-export helper utilities from `retry` crate. If user
+  need them please use `retry` crate directly.
+
 
 
 ## [0.2.0] - 2020-11-29

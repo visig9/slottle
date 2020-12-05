@@ -111,7 +111,7 @@ impl Throttle {
     ///                 true => Ok(round),
     ///             },
     ///             // rseq: each retry delay 10 ms, can retry only 1 time (max round == 2).
-    ///             retrying::Fixed::from_millis(10).take(1),
+    ///             [Duration::from_millis(10)].iter().cycle().cloned().take(1),
     ///         )
     ///     })
     ///     .collect();

@@ -198,7 +198,6 @@ pub mod retrying {
     //!
     //! Only exists when `retrying` feature on.
 
-    pub use retry::delay::{jitter, Exponential, Fibonacci, Fixed, NoDelay, Range};
     pub use retry::OperationResult;
 }
 

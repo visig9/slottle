@@ -205,7 +205,7 @@ mod tests {
                 throttles.run_retry(
                     1,
                     |_| Ok(x + 1),
-                    retrying::Fibonacci::from_millis(100).take(5),
+                    [Duration::from_millis(10)].iter().cycle().cloned().take(5),
                 )
             })
             .collect::<Result<Vec<i32>, i32>>()

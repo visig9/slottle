@@ -2,8 +2,29 @@
 
 ## [Unreleased]
 
-- [BREAKING]: Stop re-export helper utilities from `retry` crate. If user
-  need them please use `retry` crate directly.
+### Removed
+
+- [BREAKING]: Remove `ThrottlePool::run()` & `ThrottlePool::run_retry()`.
+    - Use `pool.get(id).run(...)` as replacement.
+- [BREAKING]: Remove `ThrottleBuilder::fuzzy_fn()` & `ThrottlePoolBuilder::fuzzy_fn()`.
+    - Use `interval_fn(|| ...)` as replacement.
+- [BREAKING]: Remove optional features `retrying` & `fuzzy_fn` due to no longer needed.
+- [BREAKING]: Stop re-export helper utilities from `retry` crate.
+
+### Added
+
+- New method `ThrottlePool::get()` to access onderlaying `Throttle` instance.
+- New methods `ThrottleBuilder::interval_fn()` & `ThrottlePoolBuilder::interval_fn()` API accept
+  an user's algorithm to generate dynamic intervals.
+- New method `Throttle::run_failable()` allow throttle detect operation failed
+  and may change future interval calculation by `interval_fn()`.
+    - This error detecting logic also apply to new method `Throttle::retry()`.
+
+### Changed
+
+- [BREAKING]: New `Throttle::retry()` API replace old `Throttle::run_retry()`.
+    - Compare with old version, new API shared delay intervals with all operations
+      in current throttle scope.
 
 
 

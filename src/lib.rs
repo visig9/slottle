@@ -83,154 +83,73 @@
 //! use slottle::ThrottlePool;
 //! use std::time::{Duration, Instant};
 //!
-//! fn main() {
-//!     // Make sure we have enough of threads can be blocked.
-//!     // Here we use rayon as example but you can choice any thread implementation.
-//!     rayon::ThreadPoolBuilder::new()
-//!         .num_threads(8)
-//!         .build_global()
-//!         .unwrap();
+//! // Make sure we have enough of threads can be blocked.
+//! // Here we use rayon as example but you can choice any thread implementation.
+//! rayon::ThreadPoolBuilder::new()
+//!     .num_threads(8)
+//!     .build_global()
+//!     .unwrap();
 //!
-//!     // Create ThrottlePool.
-//!     //
-//!     // In here `id` is `bool` type for demonstration.
-//!     // If you're writing a web spider, type of `id` might should be `url::Host`.
-//!     let throttles: ThrottlePool<bool> = ThrottlePool::builder()
-//!         .interval(Duration::from_millis(10)) // set interval to 10ms
-//!         .concurrent(2) // set concurrent to 2
-//!         .build()
-//!         .unwrap();
+//! // Create ThrottlePool.
+//! //
+//! // In here `id` is `bool` type for demonstration.
+//! // If you're writing a web spider, type of `id` might should be `url::Host`.
+//! let throttles: ThrottlePool<bool> = ThrottlePool::builder()
+//!     .interval(Duration::from_millis(20)) // set interval to 20ms
+//!     .concurrent(2) // set concurrent to 2
+//!     .build()
+//!     .unwrap();
 //!
-//!     // HINT: according previous config, expected access speed is
-//!     // 2 per 10ms = 1 per 5ms (in each throttle)
+//! // HINT: according previous config, expected access speed is
+//! // 2 per 20ms = 1 per 10ms (in each throttle)
 //!
-//!     let started_time = Instant::now();
+//! let started_time = Instant::now();
 //!
-//!     let mut time_passed_ms_vec: Vec<f64> = vec![1, 2, 3, 4, 5, 6]
-//!         .into_par_iter()
-//!         .map(|x| {
-//!             throttles.run(
-//!                 x >= 5, // 5,6 in throttle `true` & 1,2,3,4 in throttle `false`
-//!                 // here is the operation we want to throttling
-//!                 || {
-//!                     let time_passed_ms = started_time.elapsed().as_secs_f64() * 1000.0;
-//!                     println!(
-//!                         "[throttle: {:>5}] allowed job {} to start at: {:.2}ms",
-//!                         x >= 5, x, time_passed_ms,
-//!                     );
+//! let mut all_added_one: Vec<i32> = vec![1, 2, 3, 4, 5, 6]
+//!     .into_par_iter()
+//!     .map(|x| {
+//!         throttles
+//!             .get(x >= 5)    // 5,6 in throttle `true` & 1,2,3,4 in throttle `false`
+//!             .run(|| {       // here is the operation we want to throttling
+//!                 let time_passed_ms = started_time.elapsed().as_secs_f64() * 1000.0;
+//!                 println!(
+//!                     "[throttle: {:>5}] allowed job {} to start at: {:.2}ms",
+//!                     x >= 5, x, time_passed_ms,
+//!                 );
 //!
-//!                     // // you can also add some long-running task to see how throttle work
-//!                     // std::thread::sleep(Duration::from_millis(20));
+//!                 // // you can add some long-running task to see how throttle work
+//!                 // std::thread::sleep(Duration::from_millis(40));
 //!
-//!                     time_passed_ms
-//!                 },
-//!             )
-//!         })
-//!         .collect();
+//!                 x + 1
+//!             })
+//!     })
+//!     .collect();
 //!
-//!     // Verify all time_passed_ms as we expected...
-//!
-//!     time_passed_ms_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
-//!
-//!     let expected_time_passed_ms = [0.0, 0.0, 5.0, 5.0, 10.0, 15.0];
-//!     time_passed_ms_vec
-//!         .into_iter()
-//!         .zip(expected_time_passed_ms.iter())
-//!         .for_each(|(value, expected)| {
-//!             assert_eq_approx("time_passed (ms)", value, *expected, 1.0)
-//!         });
-//! }
-//!
-//! /// assert value approximate equal to expected value.
-//! fn assert_eq_approx(name: &str, value: f64, expected: f64, espilon: f64) {
-//!     let expected_range = (expected - espilon)..(expected + espilon);
-//!     assert!(
-//!         expected_range.contains(&value),
-//!         "{}: {} out of accpetable range: {:?}",
-//!         name, value, expected_range,
-//!     );
-//! }
+//! assert_eq!(all_added_one, vec![2, 3, 4, 5, 6, 7]);
 //! ```
 //!
 //! Output:
 //!
 //! ```text
-//! [throttle: false] allowed job 1 to start at: 0.05ms
-//! [throttle:  true] allowed job 5 to start at: 0.06ms
-//! [throttle: false] allowed job 2 to start at: 5.10ms
-//! [throttle:  true] allowed job 6 to start at: 5.12ms
-//! [throttle: false] allowed job 3 to start at: 10.11ms
-//! [throttle: false] allowed job 4 to start at: 15.11ms
+//! [throttle: false] allowed job 1 to start at: 0.09ms
+//! [throttle:  true] allowed job 6 to start at: 0.10ms
+//! [throttle: false] allowed job 4 to start at: 10.40ms
+//! [throttle:  true] allowed job 5 to start at: 10.42ms
+//! [throttle: false] allowed job 3 to start at: 20.12ms
+//! [throttle: false] allowed job 2 to start at: 30.12ms
 //! ```
 //!
 //!
 //!
-//! # Features
-//!
-//! - `fuzzy_fns`: (optional) Offer helper function can fuzzing the `interval` in all operations.
-//! - `retrying`: (optional, **experimental**) Add `run_retry(...)` APIs to support [retry] beside the standard throttle operation.
-//!
-//!
-//!
-//! # Naming
+//! # Crate Naming
 //!
 //! Crate name `slottle` is the abbr of "slotted throttle". Which is the original name of `ThrottlePool`.
 
-use std::time::Duration;
-
 mod throttle;
-
-#[doc(inline)]
-pub use throttle::{Throttle, ThrottleBuilder};
-
 mod throttle_pool;
 
 #[doc(inline)]
+pub use throttle::{RetryableResult, Throttle, ThrottleBuilder, ThrottleLog};
+
+#[doc(inline)]
 pub use throttle_pool::{ThrottlePool, ThrottlePoolBuilder};
-
-type FuzzyFn = fn(interval: Duration) -> Duration;
-
-#[cfg(feature = "retrying")]
-pub mod retrying {
-    //! Re-export utils in [`retry`] crate for `retrying` feature related facility.
-    //!
-    //! # Note
-    //!
-    //! Only exists when `retrying` feature on.
-
-    pub use retry::OperationResult;
-}
-
-#[cfg(feature = "fuzzy_fns")]
-pub mod fuzzy_fns {
-    //! Helper functions can assign into [`ThrottleBuilder::fuzzy_fn()`](crate::throttle::ThrottleBuilder::fuzzy_fn()).
-    //!
-    //! # Note
-    //!
-    //! Only exists when `fuzzy_fns` feature on.
-
-    use rand::prelude::*;
-    use std::time::Duration;
-
-    /// Generate a new [`Duration`] between `0..(2 * interval)` by uniform distribution.
-    pub fn uniform(interval: Duration) -> Duration {
-        let jitter = random::<f64>() * 2.0;
-        Duration::from_secs_f64(interval.as_secs_f64() * jitter)
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use crate::fuzzy_fns;
-        use std::time::Duration;
-
-        #[test]
-        fn uniform() {
-            vec![Duration::from_secs(10); 100]
-                .into_iter()
-                .map(fuzzy_fns::uniform)
-                .for_each(|d| {
-                    assert!((Duration::from_secs(0)..Duration::from_secs(20)).contains(dbg!(&d)))
-                });
-        }
-    }
-}

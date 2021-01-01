@@ -7,8 +7,7 @@ use std::{
     time::Duration,
 };
 
-use crate::FuzzyFn;
-use crate::Throttle;
+use crate::throttle::{IntervalFn, Throttle, ThrottleLog};
 
 #[cfg(feature = "retrying")]
 use crate::retrying;
@@ -18,9 +17,9 @@ use crate::retrying;
 /// See [module](crate) document for more detail.
 pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
-    interval: Duration,
+    interval_fn: Arc<IntervalFn>,
     concurrent: u32,
-    fuzzy_fn: Option<FuzzyFn>,
+    log_size: usize,
 }
 
 impl<K: Hash + Eq> ThrottlePool<K> {
@@ -30,103 +29,84 @@ impl<K: Hash + Eq> ThrottlePool<K> {
     }
 
     /// Get a throttle from pool, if not exists, create it.
-    fn get_throttle(&self, id: K) -> Arc<Throttle> {
+    pub fn get(&self, id: K) -> Arc<Throttle> {
         Arc::clone(
             self.throttles
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .entry(id)
                 .or_insert_with(|| {
-                    let mut builder = Throttle::builder();
-                    builder.interval(self.interval).concurrent(self.concurrent);
-
-                    if let Some(fuzzy_fn) = self.fuzzy_fn {
-                        builder.fuzzy_fn(fuzzy_fn);
-                    }
-
                     Arc::new(
-                        builder
+                        Throttle::builder()
+                            .interval_fn_from_arc(&self.interval_fn)
+                            .concurrent(self.concurrent)
+                            .enable_log(self.log_size)
                             .build()
                             .expect("`concurrent` already varified when ThrottlePool created"),
                     )
                 }),
         )
     }
-
-    /// Run some function in particular throttle.
-    ///
-    /// This operation may block current thread by throttle current state and configuration.
-    pub fn run<F, T>(&self, id: K, f: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        let throttle = self.get_throttle(id);
-        throttle.run(f)
-    }
-
-    /// > ***Experimental**: this API maybe deleted or re-designed in future version.*
-    ///
-    /// Run some function in particular throttle & retrying if function return `Err(T)`.
-    ///
-    /// Check [`Throttle::run_retry()`] for more detail.
-    ///
-    /// # Feature
-    ///
-    /// Only exists when `retrying` feature on.
-    #[cfg(feature = "retrying")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "retrying")))]
-    pub fn run_retry<F, T, E, R, OR>(&self, id: K, f: F, rseq: R) -> Result<T, E>
-    where
-        F: FnMut(u64) -> OR,
-        OR: Into<retrying::OperationResult<T, E>>,
-        R: IntoIterator<Item = Duration>,
-    {
-        let throttle = self.get_throttle(id);
-        throttle.run_retry(f, rseq)
-    }
 }
 
 impl<K: Hash + Eq> Debug for ThrottlePool<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Throttle")
-            .field("interval", &self.interval)
+        f.debug_struct(&format!("ThrottlePool<{}>", std::any::type_name::<K>(),))
+            .field("log_size", &self.log_size)
             .field("concurrent", &self.concurrent)
-            .field(
-                "fuzzy_fn",
-                &match self.fuzzy_fn.is_some() {
-                    true => "Given",
-                    false => "Not Exists",
-                },
-            )
             .finish()
     }
 }
 
 /// Use to build a [`ThrottlePool`].
 ///
-/// Create by [`ThrottlePool::builder()`] API.
+/// Created by [`ThrottlePool::builder()`] API.
 pub struct ThrottlePoolBuilder<K: Hash + Eq> {
-    interval: Duration,
+    interval_fn: Arc<IntervalFn>,
     concurrent: u32,
-    fuzzy_fn: Option<FuzzyFn>,
+    log_size: usize,
     phantom: PhantomData<K>,
 }
 
 impl<K: Hash + Eq> Default for ThrottlePoolBuilder<K> {
     fn default() -> Self {
         Self {
-            interval: Duration::default(),
+            interval_fn: Arc::new(|_| Duration::default()),
             concurrent: 1,
-            fuzzy_fn: None,
+            log_size: 0,
             phantom: PhantomData,
         }
     }
 }
 
 impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
-    /// Set interval, default value is `Duration::default()`.
+    /// Set interval as a fixed value.
+    ///
+    /// This function just a shortcut of [`interval_fn(|| interval)`](Self::interval_fn).
     pub fn interval(&mut self, interval: Duration) -> &mut Self {
-        self.interval = interval;
+        self.interval_fn(move |_| interval);
+        self
+    }
+
+    /// Set interval as a dynamic value.
+    ///
+    /// This function allow user calculate dynamic interval by statistic
+    /// data from [`ThrottleLog`].
+    ///
+    /// The default value is `|_| Duration::default()` (no delay).
+    pub fn interval_fn<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static,
+    {
+        self.interval_fn = Arc::new(f);
+        self
+    }
+
+    /// Set [`ThrottleLog`] maximum size.
+    ///
+    /// The default value is `0`.
+    pub fn log_size(&mut self, size: usize) -> &mut Self {
+        self.log_size = size;
         self
     }
 
@@ -136,36 +116,35 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
         self
     }
 
-    /// Set fuzzy_fn to tweak `interval` for each run, by default no fuzzy_fn
-    /// (interval be used as is).
-    ///
-    /// # Feature
-    ///
-    /// If you enable `fuzzy_fns` then [`crate::fuzzy_fns`] will contain some fuzzy_fn implementations.
-    pub fn fuzzy_fn(&mut self, fuzzy_fn: FuzzyFn) -> &mut Self {
-        self.fuzzy_fn = Some(fuzzy_fn);
-        self
-    }
-
-    /// Create a [`ThrottlePool`] pool with previous configuration.
+    /// Create a new [`ThrottlePool`] with current configuration.
     ///
     /// Return `None` if `concurrent` == `0` or larger than `isize::MAX`.
     pub fn build(&mut self) -> Option<ThrottlePool<K>> {
         // check the configurations can initialize throttle properly.
-        if let None = Throttle::builder()
-            .interval(self.interval)
+        Throttle::builder()
+            .interval_fn_from_arc(&self.interval_fn)
             .concurrent(self.concurrent)
-            .build()
-        {
-            return None;
-        }
+            .enable_log(self.log_size)
+            .build()?;
 
         Some(ThrottlePool {
             throttles: Mutex::new(HashMap::new()),
-            interval: self.interval,
+            interval_fn: Arc::clone(&self.interval_fn),
+            log_size: self.log_size,
             concurrent: self.concurrent,
-            fuzzy_fn: self.fuzzy_fn.take(),
         })
+    }
+}
+
+impl<K: Hash + Eq> Debug for ThrottlePoolBuilder<K> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct(&format!(
+            "ThrottlePoolBuilder<{}>",
+            std::any::type_name::<K>()
+        ))
+        .field("concurrent", &self.concurrent)
+        .field("log_size", &self.log_size)
+        .finish()
     }
 }
 
@@ -184,7 +163,7 @@ mod tests {
 
         let results: Vec<i32> = vec![1, 2, 3]
             .into_par_iter()
-            .map(|x| throttles.run(1, || x + 1))
+            .map(|x| throttles.get(1).run(|| x + 1))
             .collect();
 
         assert!(results == vec![2, 3, 4]);

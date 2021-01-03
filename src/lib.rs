@@ -149,7 +149,9 @@ mod throttle;
 mod throttle_pool;
 
 #[doc(inline)]
-pub use throttle::{RetryableResult, Throttle, ThrottleBuilder, ThrottleLog};
+pub use throttle::{
+    algorithms::fibonacci, Algorithm, RetryableResult, Throttle, ThrottleBuilder, ThrottleLog,
+};
 
 #[doc(inline)]
 pub use throttle_pool::{ThrottlePool, ThrottlePoolBuilder};

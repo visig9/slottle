@@ -4,10 +4,9 @@ use std::{
     hash::Hash,
     marker::PhantomData,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-use crate::throttle::{IntervalFn, Throttle, ThrottleLog};
+use crate::throttle::{Algorithm, Throttle};
 
 #[cfg(feature = "retrying")]
 use crate::retrying;
@@ -17,9 +16,8 @@ use crate::retrying;
 /// See [module](crate) document for more detail.
 pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
-    interval_fn: Arc<IntervalFn>,
     concurrent: u32,
-    log_size: usize,
+    algorithm: Algorithm,
 }
 
 impl<K: Hash + Eq> ThrottlePool<K> {
@@ -38,9 +36,8 @@ impl<K: Hash + Eq> ThrottlePool<K> {
                 .or_insert_with(|| {
                     Arc::new(
                         Throttle::builder()
-                            .interval_fn_from_arc(&self.interval_fn)
+                            .interval(self.algorithm.clone())
                             .concurrent(self.concurrent)
-                            .enable_log(self.log_size)
                             .build()
                             .expect("`concurrent` already varified when ThrottlePool created"),
                     )
@@ -52,7 +49,6 @@ impl<K: Hash + Eq> ThrottlePool<K> {
 impl<K: Hash + Eq> Debug for ThrottlePool<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(&format!("ThrottlePool<{}>", std::any::type_name::<K>(),))
-            .field("log_size", &self.log_size)
             .field("concurrent", &self.concurrent)
             .finish()
     }
@@ -62,51 +58,70 @@ impl<K: Hash + Eq> Debug for ThrottlePool<K> {
 ///
 /// Created by [`ThrottlePool::builder()`] API.
 pub struct ThrottlePoolBuilder<K: Hash + Eq> {
-    interval_fn: Arc<IntervalFn>,
     concurrent: u32,
-    log_size: usize,
+    algorithm: Algorithm,
     phantom: PhantomData<K>,
 }
 
 impl<K: Hash + Eq> Default for ThrottlePoolBuilder<K> {
     fn default() -> Self {
         Self {
-            interval_fn: Arc::new(|_| Duration::default()),
+            algorithm: Algorithm::default(),
             concurrent: 1,
-            log_size: 0,
             phantom: PhantomData,
         }
     }
 }
 
 impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
-    /// Set interval as a fixed value.
+    /// Set interval of throttles in this pool.
     ///
-    /// This function just a shortcut of [`interval_fn(|| interval)`](Self::interval_fn).
-    pub fn interval(&mut self, interval: Duration) -> &mut Self {
-        self.interval_fn(move |_| interval);
-        self
-    }
-
-    /// Set interval as a dynamic value.
+    /// The default value is no delay (`Duration::new(0, 0)`)
     ///
-    /// This function allow user calculate dynamic interval by statistic
-    /// data from [`ThrottleLog`].
+    /// # Example
     ///
-    /// The default value is `|_| Duration::default()` (no delay).
-    pub fn interval_fn<F>(&mut self, f: F) -> &mut Self
+    /// ```
+    /// use slottle::{ThrottlePool, Algorithm};
+    /// use std::time::Duration;
+    /// use rand;
+    ///
+    /// // fixed interval: 10ms
+    /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
+    ///     .interval(Duration::from_millis(10))
+    ///     .build().unwrap();
+    ///
+    /// // random interval between: 10ms ~ 0ms
+    /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
+    ///     .interval(|| Duration::from_millis(10).mul_f64(rand::random()))
+    ///     .build().unwrap();
+    ///
+    /// // increasing delay if failed continuously
+    /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
+    ///     .interval(Algorithm::new(
+    ///         |log| match log.unwrap().failure_count_cont() {
+    ///             0 => Duration::from_millis(10),
+    ///             1 => Duration::from_millis(30),
+    ///             2 => Duration::from_millis(50),
+    ///             3 => Duration::from_millis(70),
+    ///             _ => unreachable!(),
+    ///         },
+    ///         3,  // maximum log size
+    ///     ))
+    ///     .build().unwrap();
+    ///
+    /// // use pre-defined algorithm
+    /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
+    ///     .interval(slottle::fibonacci(
+    ///         Duration::from_millis(10),
+    ///         Duration::from_secs(2),
+    ///     ))
+    ///     .build().unwrap();
+    /// ```
+    pub fn interval<A>(&mut self, a: A) -> &mut Self
     where
-        F: Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static,
+        A: Into<Algorithm>,
     {
-        self.interval_fn = Arc::new(f);
-        self
-    }
-
-    /// Set [`ThrottleLog`] maximum size.
-    ///
-    /// The default value is `0`.
-    pub fn log_size(&mut self, size: usize) -> &mut Self {
-        self.log_size = size;
+        self.algorithm = a.into();
         self
     }
 
@@ -122,15 +137,13 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     pub fn build(&mut self) -> Option<ThrottlePool<K>> {
         // check the configurations can initialize throttle properly.
         Throttle::builder()
-            .interval_fn_from_arc(&self.interval_fn)
+            .interval(self.algorithm.clone())
             .concurrent(self.concurrent)
-            .enable_log(self.log_size)
             .build()?;
 
         Some(ThrottlePool {
             throttles: Mutex::new(HashMap::new()),
-            interval_fn: Arc::clone(&self.interval_fn),
-            log_size: self.log_size,
+            algorithm: self.algorithm.clone(),
             concurrent: self.concurrent,
         })
     }
@@ -143,7 +156,6 @@ impl<K: Hash + Eq> Debug for ThrottlePoolBuilder<K> {
             std::any::type_name::<K>()
         ))
         .field("concurrent", &self.concurrent)
-        .field("log_size", &self.log_size)
         .finish()
     }
 }
@@ -152,6 +164,7 @@ impl<K: Hash + Eq> Debug for ThrottlePoolBuilder<K> {
 mod tests {
     use super::*;
     use rayon::prelude::*;
+    use std::time::Duration;
 
     #[test]
     fn run() {

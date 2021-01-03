@@ -7,18 +7,16 @@
 - [BREAKING]: Remove `ThrottlePool::run()` & `ThrottlePool::run_retry()`.
     - Use `pool.get(id).run(...)` as replacement.
 - [BREAKING]: Remove `ThrottleBuilder::fuzzy_fn()` & `ThrottlePoolBuilder::fuzzy_fn()`.
-    - Use `interval_fn(|| ...)` as replacement.
+    - Use `interval(|| ...)` as replacement.
 - [BREAKING]: Remove optional features `retrying` & `fuzzy_fn` due to no longer needed.
-- [BREAKING]: Stop re-export helper utilities from `retry` crate.
 
 ### Added
 
-- New method `ThrottlePool::get()` to access onderlaying `Throttle` instance.
-- New methods `ThrottleBuilder::interval_fn()` & `ThrottlePoolBuilder::interval_fn()` API accept
-  an user's algorithm to generate dynamic intervals.
-- New method `Throttle::run_failable()` allow throttle detect operation failed
-  and may change future interval calculation by `interval_fn()`.
-    - This error detecting logic also apply to new method `Throttle::retry()`.
+- New method `ThrottlePool::get()` to access underlaying `Throttle` instance.
+- Method `ThrottleBuilder::interval()` & `ThrottlePoolBuilder::interval()` API now
+  allow to set dynamic interval.
+- New method `Throttle::run_failable()`.
+- Pre-defined interval algorithm `fibonacci()`.
 
 ### Changed
 

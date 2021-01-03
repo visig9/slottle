@@ -8,7 +8,7 @@ For example, a web scraping tool may treat domain name as resource id to control
 
 # Features
 
-- Not just individual throttle but also provide pool. (You can skip the pool if don't need it)
+- Not just individual throttle but also provide throttle pool. (can ignore if don't need it)
 - Both concurrent & delay interval are configurable.
 - Allow user defined algorithm to generate delay interval dynamically.
 - Failure sensitive & builtin retry support.

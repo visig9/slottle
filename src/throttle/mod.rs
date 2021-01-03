@@ -7,8 +7,7 @@ use std::{
 };
 use std_semaphore::Semaphore;
 
-#[cfg(feature = "retrying")]
-use crate::retrying;
+pub mod algorithms;
 
 pub type IntervalFn = dyn Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static;
 
@@ -17,9 +16,7 @@ pub struct Throttle {
     /// Which time point are allowed to perform the next `run()`.
     allowed_future: Mutex<Instant>,
     semaphore: Semaphore,
-
     log: Option<Mutex<ThrottleLog>>,
-
     interval_fn: Arc<IntervalFn>,
     concurrent: u32,
 }
@@ -32,7 +29,7 @@ impl Throttle {
 
     /// Run a function.
     ///
-    /// Call this function may block current thread by throttle's state and configuration.
+    /// Call `run(...)` may block current thread by throttle's state and configuration.
     ///
     /// # Example
     ///
@@ -74,25 +71,26 @@ impl Throttle {
     ///
     /// When `f` return an `Err`, throttle will treat this function run
     /// into "failed" state. Failure will counting by [`ThrottleLog`] and may change
-    /// following delay intervals in current throttle scope by user defined algorithm
-    /// within [`ThrottleBuilder::interval_fn()`].
+    /// following delay intervals in current throttle scope by user defined [`Algorithm`]
+    /// within [`ThrottleBuilder::interval()`].
     ///
-    /// Call this function may block current thread by throttle's state and configuration.
+    /// Call `run_failable(...)` may block current thread by throttle's state and configuration.
     ///
     /// # Example
     ///
     /// ```
     /// use std::time::{Duration, Instant};
     /// use rayon::prelude::*;
-    /// use slottle::Throttle;
+    /// use slottle::{Throttle,Algorithm};
     ///
     /// let throttle = Throttle::builder()
-    ///     // log_size must >= 1 if want to collect somethings
-    ///     .enable_log(1)
-    ///     .interval_fn(|log| match log.expect("log enabled").failure_count_cont() {
-    ///         0 => Duration::from_millis(10), // if successful
-    ///         _ => Duration::from_millis(50), // if failed
-    ///     })
+    ///     .interval(Algorithm::new(
+    ///         |log| match log.unwrap().failure_count_cont() {
+    ///             0 => Duration::from_millis(10), // if successful
+    ///             _ => Duration::from_millis(50), // if failed
+    ///         },
+    ///         1, // log_size
+    ///     ))
     ///     .build()
     ///     .unwrap();
     ///
@@ -178,7 +176,7 @@ impl Throttle {
     /// This method may effect intervals calculation due to any kind of `Err` happened.
     /// Check [`run_failable()`](Self::run_failable) to see how it work.
     ///
-    /// Call this function may block current thread by throttle's state and configuration.
+    /// Call `retry(...)` may block current thread by throttle's state and configuration.
     ///
     /// # Example
     ///
@@ -317,7 +315,7 @@ impl Throttle {
         if let Some(log) = self.log.as_ref() {
             log.lock()
                 .expect("mutex impossible to be poison")
-                .push(LogItem {
+                .push(LogRecord {
                     time: Instant::now(),
                     successful,
                 });
@@ -352,39 +350,50 @@ impl ThrottleBuilder {
         }
     }
 
-    /// Set interval as a fixed value.
+    /// Set interval of throttle.
     ///
-    /// This function just a shortcut of [`interval_fn(|| interval)`](`Self::interval_fn`).
-    pub fn interval(&mut self, interval: Duration) -> &mut Self {
-        self.interval_fn(move |_| interval);
-        self
-    }
-
-    /// Set interval as a dynamic value.
+    /// # Example
     ///
-    /// This function allow user calculate dynamic interval by statistic
-    /// data from [`ThrottleLog`].
+    /// ```
+    /// use slottle::{Throttle, Algorithm};
+    /// use std::time::Duration;
+    /// use rand;
     ///
-    /// The default value is `|_| Duration::default()` (no delay).
-    pub fn interval_fn<F>(&mut self, f: F) -> &mut Self
+    /// // fixed interval: 10ms
+    /// Throttle::builder().interval(Duration::from_millis(10));
+    ///
+    /// // random interval between: 10ms ~ 0ms
+    /// Throttle::builder()
+    ///     .interval(|| Duration::from_millis(10).mul_f64(rand::random()));
+    ///
+    /// // increasing delay if failed continuously
+    /// Throttle::builder()
+    ///     .interval(Algorithm::new(
+    ///         |log| match log.unwrap().failure_count_cont() {
+    ///             0 => Duration::from_millis(10),
+    ///             1 => Duration::from_millis(30),
+    ///             2 => Duration::from_millis(50),
+    ///             3 => Duration::from_millis(70),
+    ///             _ => unreachable!(),
+    ///         },
+    ///         3,  // maximum log size
+    ///     ));
+    ///
+    /// // use pre-defined algorithm
+    /// Throttle::builder()
+    ///     .interval(slottle::fibonacci(
+    ///         Duration::from_millis(10),
+    ///         Duration::from_secs(2),
+    ///     ));
+    /// ```
+    pub fn interval<A>(&mut self, a: A) -> &mut Self
     where
-        F: Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static,
+        A: Into<Algorithm>,
     {
-        self.interval_fn = Arc::new(f);
-        self
-    }
+        let a = a.into();
 
-    pub(crate) fn interval_fn_from_arc(&mut self, f: &Arc<IntervalFn>) -> &mut Self {
-        self.interval_fn = Arc::clone(f);
-        self
-    }
-
-    /// Enable log and set [`ThrottleLog`] maximum size.
-    ///
-    /// The default value is `0`. If you what to do some statistic, make sure give a reasonable
-    /// size (E.g., `10` or `100`). Too large may cause some performance problems.
-    pub fn enable_log(&mut self, log_size: usize) -> &mut Self {
-        self.log_size = log_size;
+        self.interval_fn = a.interval_fn;
+        self.log_size = a.log_size;
         self
     }
 
@@ -426,16 +435,37 @@ impl Debug for ThrottleBuilder {
     }
 }
 
-/// Collect operation log of a [`Throttle`] & used to generate some statistic data.
+/// The result type for [`Throttle::retry()`] API.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+pub enum RetryableResult<T, E> {
+    /// Represent operation successful.
+    Ok(T),
+    /// Represent operation failed & allow to retry.
+    RetryableErr(E),
+    /// Represent operation failed & should not retry.
+    FatalErr(E),
+}
+
+impl<T, E> From<Result<T, E>> for RetryableResult<T, E> {
+    fn from(result: Result<T, E>) -> Self {
+        match result {
+            Ok(v) => Self::Ok(v),
+            Err(e) => Self::RetryableErr(e),
+        }
+    }
+}
+
+/// Collect operation log of a [`Throttle`].
 ///
-/// User can access this log in [`ThrottleBuilder::interval_fn()`] API.
+/// User can access this log by [`ThrottleBuilder::interval()`] API by
+/// [`Algorithm`].
 ///
-/// NOTE: `ThrottleLog` will drop oldest log records when it receive entries but
-/// already reach it size limit.
+/// `ThrottleLog` will drop oldest log records automatically when it reach
+/// it size limit.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ThrottleLog {
     size: usize,
-    inner: VecDeque<LogItem>,
+    inner: VecDeque<LogRecord>,
 }
 
 impl ThrottleLog {
@@ -446,18 +476,18 @@ impl ThrottleLog {
         }
     }
 
-    fn push(&mut self, log_item: LogItem) {
+    fn push(&mut self, log_record: LogRecord) {
         // if size == 0, noop
         if self.size == 0 {
             return;
         }
 
-        // if size != 0 and already full, remove oldest before insert item
+        // if size != 0 and already full, remove oldest before insert record
         if self.size == self.inner.len() {
             self.inner.pop_back();
         }
 
-        self.inner.push_front(log_item);
+        self.inner.push_front(log_record);
     }
 
     /// Get maximum log size.
@@ -478,7 +508,10 @@ impl ThrottleLog {
     /// - `SFFFF`: 4
     /// - `FSSSS`: 1
     pub fn failure_count(&self) -> usize {
-        self.inner.iter().filter(|item| !item.successful).count()
+        self.inner
+            .iter()
+            .filter(|record| !record.successful)
+            .count()
     }
 
     /// Get how many failures from newest log entry continuously.
@@ -494,7 +527,7 @@ impl ThrottleLog {
     pub fn failure_count_cont(&self) -> usize {
         self.inner
             .iter()
-            .take_while(|item| !item.successful)
+            .take_while(|record| !record.successful)
             .count()
     }
 
@@ -533,39 +566,98 @@ impl ThrottleLog {
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct LogItem {
+pub struct LogRecord {
     time: Instant,
     successful: bool,
 }
 
-/// The result type for [`Throttle::retry()`] API.
-///
-/// # Example
-///
-/// ```
-/// use slottle::RetryableResult;
-///
-/// let ok: Result<i32, ()> = Ok(1i32);
-/// let err: Result<i32, ()> = Err(());
-///
-/// assert_eq!(RetryableResult::from(ok), RetryableResult::Ok(1));
-/// assert_eq!(RetryableResult::from(err), RetryableResult::RetryableErr(()));
-/// ```
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub enum RetryableResult<T, E> {
-    /// Represent operation successful.
-    Ok(T),
-    /// Represent operation failed & allow to retry.
-    RetryableErr(E),
-    /// Represent operation failed & should not retry.
-    FatalErr(E),
+/// Interval calculating algorithm.
+#[derive(Clone)]
+pub struct Algorithm {
+    interval_fn: Arc<IntervalFn>,
+    log_size: usize,
 }
 
-impl<T, E> From<Result<T, E>> for RetryableResult<T, E> {
-    fn from(result: Result<T, E>) -> Self {
-        match result {
-            Ok(v) => Self::Ok(v),
-            Err(e) => Self::RetryableErr(e),
+impl Algorithm {
+    /// Create a interval calculating algorithm
+    ///
+    /// Define an `interval_fn` to generate interval dynamically.
+    ///
+    /// `log_size` argument determine the maximum size of [`ThrottleLog`] which
+    /// `interval_fn` can access. If `log_size == 0`, `interval_fn` will receive
+    /// `None`.
+    pub fn new<F>(interval_fn: F, log_size: usize) -> Self
+    where
+        F: Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static,
+    {
+        Self {
+            interval_fn: Arc::new(interval_fn),
+            log_size,
+        }
+    }
+
+    /// Apply post-process to generated interval.
+    ///
+    /// This method are useful when user want to do some tweaks with
+    /// pre-built algorithm.
+    ///
+    /// # example
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use slottle::Algorithm;
+    ///
+    /// // following algorithm produce random duration from 0 ~ 10ms
+    /// let algo = Algorithm::new(|_| Duration::from_millis(10), 0)
+    ///     .modify(|dur| dur * rand::random());
+    /// ```
+    pub fn modify<F>(self, f: F) -> Algorithm
+    where
+        F: Fn(Duration) -> Duration + Send + Sync + 'static,
+    {
+        let orig_fn = self.interval_fn;
+
+        Self {
+            interval_fn: Arc::new(move |log| f(orig_fn(log))),
+            log_size: self.log_size,
+        }
+    }
+}
+
+impl<F> From<F> for Algorithm
+where
+    F: Fn() -> Duration + Send + Sync + 'static,
+{
+    fn from(f: F) -> Self {
+        Self {
+            interval_fn: Arc::new(move |_| f()),
+            log_size: 0,
+        }
+    }
+}
+
+impl From<Duration> for Algorithm {
+    fn from(duration: Duration) -> Self {
+        Self {
+            interval_fn: Arc::new(move |_| duration),
+            log_size: 0,
+        }
+    }
+}
+
+impl Debug for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Algorithm")
+            .field("log_size", &self.log_size)
+            .finish()
+    }
+}
+
+impl Default for Algorithm {
+    fn default() -> Self {
+        Self {
+            interval_fn: Arc::new(|_| Duration::default()),
+            log_size: 0,
         }
     }
 }
@@ -619,7 +711,7 @@ mod tests {
         assert_eq!(log.failure_count(), 0);
         assert_eq!(log.failure_rate().unwrap(), 0.0);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: false,
         });
@@ -627,7 +719,7 @@ mod tests {
         assert_eq!(log.failure_count(), 1);
         assert_eq!(log.failure_rate().unwrap(), 0.25);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: false,
         });
@@ -635,11 +727,11 @@ mod tests {
         assert_eq!(log.failure_count(), 2);
         assert_eq!(log.failure_rate().unwrap(), 0.5);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: true,
         });
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: true,
         });
@@ -647,7 +739,7 @@ mod tests {
         assert_eq!(log.failure_count(), 2);
         assert_eq!(log.failure_rate().unwrap(), 0.5);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: true,
         });
@@ -655,7 +747,7 @@ mod tests {
         assert_eq!(log.failure_count(), 1);
         assert_eq!(log.failure_rate().unwrap(), 0.25);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: false,
         });
@@ -668,16 +760,19 @@ mod tests {
     fn throttle_log_new_0() {
         let mut log = ThrottleLog::new(0);
 
-        log.push(LogItem {
+        log.push(LogRecord {
             time: Instant::now(),
             successful: false,
-        });
-        log.push(LogItem {
-            time: Instant::now(),
-            successful: true,
         });
         assert_eq!(log.failure_count_cont(), 0);
         assert_eq!(log.failure_count(), 0);
         assert!(log.failure_rate().is_none());
+    }
+
+    #[test]
+    fn algorithm_modify() {
+        let algo = Algorithm::new(|_| Duration::from_millis(10), 0).modify(|dur| dur * 2);
+
+        assert_eq!((algo.interval_fn)(None), Duration::from_millis(20));
     }
 }

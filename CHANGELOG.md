@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+
+
+## [0.3.0] - 2021-01-03
+
 ### Removed
 
 - [BREAKING]: Remove `ThrottlePool::run()` & `ThrottlePool::run_retry()`.

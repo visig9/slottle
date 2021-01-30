@@ -56,13 +56,13 @@
 //! ```text
 //! f: assigned jobs, s: sleep function
 //!
-//! thread 1:   |f()----|s()----|f()--|s()------|f()------------------------------|.|f()--
-//!             |   interval    |   interval    |           2x interval         |...|
+//! thread 1:   |f()----|s()----|f()--|s()------|f()------------------------------|....|f()--
+//!             |   interval    |   interval    |           2x interval         |......|
 //!
-//! thread 2:   |f()-|s()-------|f()-------|s()-|f()-|s()-------|f()|s()|f()---s|f()------
-//!             |   interval    |   interval    |   interval    |  1/2  |  1/2  |
-//!                                                             ^^^^^^^^^^^^^^^^^
-//!                 max concurrent forced to 2  ---------------^
+//! thread 2:   ........|f()-|s()-------|f()-------|s()-|f()|s()|f()--|s|f()-|s-|f()---------
+//!             ........|   interval    |   interval    |  1/2  |  1/2  |  1/2  |
+//!                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+//!                 max concurrent forced to 2  -------^
 //!                 but expected value of maximux access speed is "concurrent per interval".
 //!
 //! time pass ----->

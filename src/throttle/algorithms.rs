@@ -4,7 +4,7 @@ use super::Algorithm;
 
 /// Create [fibonacci] delay algorithm base on failure count.
 ///
-/// [fibonacci]: (https://en.wikipedia.org/wiki/Fibonacci_number)
+/// [fibonacci]: https://en.wikipedia.org/wiki/Fibonacci_number
 ///
 /// Give `base` as an "unit" duration and `max` as maximum duration. This function
 /// will calculate all available fibonacci sequence items (without first 2 item `[0, 1]`).

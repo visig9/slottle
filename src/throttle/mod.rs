@@ -67,14 +67,14 @@ impl Throttle {
         result
     }
 
-    /// Run a function which are failable.
+    /// Run a function which are fallible.
     ///
     /// When `f` return an `Err`, throttle will treat this function run
     /// into "failed" state. Failure will counting by [`ThrottleLog`] and may change
     /// following delay intervals in current throttle scope by user defined [`Interval`]
     /// within [`ThrottleBuilder::interval()`].
     ///
-    /// Call `run_failable(...)` may block current thread by throttle's state and configuration.
+    /// Call `run_fallible(...)` may block current thread by throttle's state and configuration.
     ///
     /// # Example
     ///
@@ -99,7 +99,7 @@ impl Throttle {
     /// vec![Result::<(), ()>::Err(()); 3]  // 3 Err here
     ///     .into_par_iter()
     ///     .for_each(|err| {
-    ///         throttle.run_failable(|| {
+    ///         throttle.run_fallible(|| {
     ///             let time_passed_ms = started_time.elapsed().as_secs_f64() * 1000.0;
     ///             println!("time passed: {:.2}ms", time_passed_ms);
     ///             err
@@ -153,7 +153,7 @@ impl Throttle {
     /// ```
     ///
     /// Thus, data in [`ThrottleLog`] will delay one op to take effect (no matter how many concurrent).
-    pub fn run_failable<F, T, E>(&self, f: F) -> Result<T, E>
+    pub fn run_fallible<F, T, E>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce() -> Result<T, E>,
     {
@@ -174,7 +174,7 @@ impl Throttle {
     /// For example, assume `max_retry == 4` that `f` may run `5` times as maximum.
     ///
     /// This method may effect intervals calculation due to any kind of `Err` happened.
-    /// Check [`run_failable()`](Self::run_failable) to see how it work.
+    /// Check [`run_fallible()`](Self::run_fallible) to see how it work.
     ///
     /// Call `retry(...)` may block current thread by throttle's state and configuration.
     ///
@@ -770,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn algorithm_modify() {
+    fn interval_modify() {
         let algo = Interval::new(|_| Duration::from_millis(10), 0).modify(|dur| dur * 2);
 
         assert_eq!((algo.interval_fn)(None), Duration::from_millis(20));

@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::throttle::{Algorithm, Throttle};
+use crate::throttle::{Interval, Throttle};
 
 #[cfg(feature = "retrying")]
 use crate::retrying;
@@ -17,7 +17,7 @@ use crate::retrying;
 pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
     concurrent: u32,
-    algorithm: Algorithm,
+    interval: Interval,
 }
 
 impl<K: Hash + Eq> ThrottlePool<K> {
@@ -36,7 +36,7 @@ impl<K: Hash + Eq> ThrottlePool<K> {
                 .or_insert_with(|| {
                     Arc::new(
                         Throttle::builder()
-                            .interval(self.algorithm.clone())
+                            .interval(self.interval.clone())
                             .concurrent(self.concurrent)
                             .build()
                             .expect("`concurrent` already varified when ThrottlePool created"),
@@ -59,14 +59,14 @@ impl<K: Hash + Eq> Debug for ThrottlePool<K> {
 /// Created by [`ThrottlePool::builder()`] API.
 pub struct ThrottlePoolBuilder<K: Hash + Eq> {
     concurrent: u32,
-    algorithm: Algorithm,
+    interval: Interval,
     phantom: PhantomData<K>,
 }
 
 impl<K: Hash + Eq> Default for ThrottlePoolBuilder<K> {
     fn default() -> Self {
         Self {
-            algorithm: Algorithm::default(),
+            interval: Interval::default(),
             concurrent: 1,
             phantom: PhantomData,
         }
@@ -81,7 +81,7 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     /// # Example
     ///
     /// ```
-    /// use slottle::{ThrottlePool, Algorithm};
+    /// use slottle::{ThrottlePool, Interval};
     /// use std::time::Duration;
     /// use rand;
     ///
@@ -97,7 +97,7 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     ///
     /// // increasing delay if failed continuously
     /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
-    ///     .interval(Algorithm::new(
+    ///     .interval(Interval::new(
     ///         |log| match log.unwrap().failure_count_cont() {
     ///             0 => Duration::from_millis(10),
     ///             1 => Duration::from_millis(30),
@@ -109,7 +109,7 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     ///     ))
     ///     .build().unwrap();
     ///
-    /// // use pre-defined algorithm
+    /// // use pre-defined interval algorithm
     /// let pool: ThrottlePool<bool> = ThrottlePool::builder()
     ///     .interval(slottle::fibonacci(
     ///         Duration::from_millis(10),
@@ -119,9 +119,9 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     /// ```
     pub fn interval<A>(&mut self, a: A) -> &mut Self
     where
-        A: Into<Algorithm>,
+        A: Into<Interval>,
     {
-        self.algorithm = a.into();
+        self.interval = a.into();
         self
     }
 
@@ -137,13 +137,13 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     pub fn build(&mut self) -> Option<ThrottlePool<K>> {
         // check the configurations can initialize throttle properly.
         Throttle::builder()
-            .interval(self.algorithm.clone())
+            .interval(self.interval.clone())
             .concurrent(self.concurrent)
             .build()?;
 
         Some(ThrottlePool {
             throttles: Mutex::new(HashMap::new()),
-            algorithm: self.algorithm.clone(),
+            interval: self.interval.clone(),
             concurrent: self.concurrent,
         })
     }

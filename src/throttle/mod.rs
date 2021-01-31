@@ -7,7 +7,7 @@ use std::{
 };
 use std_semaphore::Semaphore;
 
-pub mod algorithms;
+pub mod interval;
 
 pub type IntervalFn = dyn Fn(Option<&ThrottleLog>) -> Duration + Send + Sync + 'static;
 
@@ -71,7 +71,7 @@ impl Throttle {
     ///
     /// When `f` return an `Err`, throttle will treat this function run
     /// into "failed" state. Failure will counting by [`ThrottleLog`] and may change
-    /// following delay intervals in current throttle scope by user defined [`Algorithm`]
+    /// following delay intervals in current throttle scope by user defined [`Interval`]
     /// within [`ThrottleBuilder::interval()`].
     ///
     /// Call `run_failable(...)` may block current thread by throttle's state and configuration.
@@ -81,10 +81,10 @@ impl Throttle {
     /// ```
     /// use std::time::{Duration, Instant};
     /// use rayon::prelude::*;
-    /// use slottle::{Throttle,Algorithm};
+    /// use slottle::{Throttle,Interval};
     ///
     /// let throttle = Throttle::builder()
-    ///     .interval(Algorithm::new(
+    ///     .interval(Interval::new(
     ///         |log| match log.unwrap().failure_count_cont() {
     ///             0 => Duration::from_millis(10), // if successful
     ///             _ => Duration::from_millis(50), // if failed
@@ -355,7 +355,7 @@ impl ThrottleBuilder {
     /// # Example
     ///
     /// ```
-    /// use slottle::{Throttle, Algorithm};
+    /// use slottle::{Throttle, Interval};
     /// use std::time::Duration;
     /// use rand;
     ///
@@ -368,7 +368,7 @@ impl ThrottleBuilder {
     ///
     /// // increasing delay if failed continuously
     /// Throttle::builder()
-    ///     .interval(Algorithm::new(
+    ///     .interval(Interval::new(
     ///         |log| match log.unwrap().failure_count_cont() {
     ///             0 => Duration::from_millis(10),
     ///             1 => Duration::from_millis(30),
@@ -388,7 +388,7 @@ impl ThrottleBuilder {
     /// ```
     pub fn interval<A>(&mut self, a: A) -> &mut Self
     where
-        A: Into<Algorithm>,
+        A: Into<Interval>,
     {
         let a = a.into();
 
@@ -458,7 +458,7 @@ impl<T, E> From<Result<T, E>> for RetryableResult<T, E> {
 /// Collect operation log of a [`Throttle`].
 ///
 /// User can access this log by [`ThrottleBuilder::interval()`] API by
-/// [`Algorithm`].
+/// [`Interval`].
 ///
 /// `ThrottleLog` will drop oldest log records automatically when it reach
 /// it size limit.
@@ -571,14 +571,14 @@ pub struct LogRecord {
     successful: bool,
 }
 
-/// Interval calculating algorithm.
+/// The interval configuration.
 #[derive(Clone)]
-pub struct Algorithm {
+pub struct Interval {
     interval_fn: Arc<IntervalFn>,
     log_size: usize,
 }
 
-impl Algorithm {
+impl Interval {
     /// Create a interval calculating algorithm
     ///
     /// Define an `interval_fn` to generate interval dynamically.
@@ -599,19 +599,19 @@ impl Algorithm {
     /// Apply post-process to generated interval.
     ///
     /// This method are useful when user want to do some tweaks with
-    /// pre-built algorithm.
+    /// pre-built interval algorithm.
     ///
     /// # example
     ///
     /// ```
     /// use std::time::Duration;
-    /// use slottle::Algorithm;
+    /// use slottle::Interval;
     ///
     /// // following algorithm produce random duration from 0 ~ 10ms
-    /// let algo = Algorithm::new(|_| Duration::from_millis(10), 0)
+    /// let algo = Interval::new(|_| Duration::from_millis(10), 0)
     ///     .modify(|dur| dur * rand::random());
     /// ```
-    pub fn modify<F>(self, f: F) -> Algorithm
+    pub fn modify<F>(self, f: F) -> Interval
     where
         F: Fn(Duration) -> Duration + Send + Sync + 'static,
     {
@@ -624,7 +624,7 @@ impl Algorithm {
     }
 }
 
-impl<F> From<F> for Algorithm
+impl<F> From<F> for Interval
 where
     F: Fn() -> Duration + Send + Sync + 'static,
 {
@@ -636,7 +636,7 @@ where
     }
 }
 
-impl From<Duration> for Algorithm {
+impl From<Duration> for Interval {
     fn from(duration: Duration) -> Self {
         Self {
             interval_fn: Arc::new(move |_| duration),
@@ -645,15 +645,15 @@ impl From<Duration> for Algorithm {
     }
 }
 
-impl Debug for Algorithm {
+impl Debug for Interval {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Algorithm")
+        f.debug_struct("Interval")
             .field("log_size", &self.log_size)
             .finish()
     }
 }
 
-impl Default for Algorithm {
+impl Default for Interval {
     fn default() -> Self {
         Self {
             interval_fn: Arc::new(|_| Duration::default()),
@@ -771,7 +771,7 @@ mod tests {
 
     #[test]
     fn algorithm_modify() {
-        let algo = Algorithm::new(|_| Duration::from_millis(10), 0).modify(|dur| dur * 2);
+        let algo = Interval::new(|_| Duration::from_millis(10), 0).modify(|dur| dur * 2);
 
         assert_eq!((algo.interval_fn)(None), Duration::from_millis(20));
     }

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use super::Algorithm;
+use super::Interval;
 
-/// Create [fibonacci] delay algorithm base on failure count.
+/// Create [fibonacci] delay interval base on failure count.
 ///
 /// [fibonacci]: https://en.wikipedia.org/wiki/Fibonacci_number
 ///
@@ -27,7 +27,7 @@ use super::Algorithm;
 /// # Panic
 ///
 /// This function will panic when `max < base` or `base == Duration::new(0, 0)`.
-pub fn fibonacci(base: Duration, max: Duration) -> Algorithm {
+pub fn fibonacci(base: Duration, max: Duration) -> Interval {
     /// Generate unit fibonacci sequence
     fn get_unit_fibonacci_seq(max_ratio: u32) -> Vec<u32> {
         let mut prev = 1;
@@ -62,7 +62,7 @@ pub fn fibonacci(base: Duration, max: Duration) -> Algorithm {
 
     println!("{:#?}", unit_fibonacci_seq);
 
-    Algorithm::new(
+    Interval::new(
         move |log| {
             let failure_count = log.unwrap().failure_count();
 

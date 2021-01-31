@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- [BREAKING]: Rename `Algorithm` to `Interval` for easier to understand.
+
 
 
 ## [0.3.0] - 2021-01-03

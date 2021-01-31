@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::throttle::{Interval, Throttle};
+use crate::throttle::{Interval, Throttle, ThrottleBuilder};
 
 #[cfg(feature = "retrying")]
 use crate::retrying;
@@ -16,8 +16,7 @@ use crate::retrying;
 /// See [module](crate) document for more detail.
 pub struct ThrottlePool<K: Hash + Eq> {
     throttles: Mutex<HashMap<K, Arc<Throttle>>>,
-    concurrent: u32,
-    interval: Interval,
+    throttle_builder: ThrottleBuilder,
 }
 
 impl<K: Hash + Eq> ThrottlePool<K> {
@@ -35,9 +34,7 @@ impl<K: Hash + Eq> ThrottlePool<K> {
                 .entry(id)
                 .or_insert_with(|| {
                     Arc::new(
-                        Throttle::builder()
-                            .interval(self.interval.clone())
-                            .concurrent(self.concurrent)
+                        self.throttle_builder
                             .build()
                             .expect("`concurrent` already varified when ThrottlePool created"),
                     )
@@ -49,7 +46,7 @@ impl<K: Hash + Eq> ThrottlePool<K> {
 impl<K: Hash + Eq> Debug for ThrottlePool<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(&format!("ThrottlePool<{}>", std::any::type_name::<K>(),))
-            .field("concurrent", &self.concurrent)
+            .field("throttle_builder", &self.throttle_builder)
             .finish()
     }
 }
@@ -117,11 +114,11 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     ///     ))
     ///     .build().unwrap();
     /// ```
-    pub fn interval<A>(&mut self, a: A) -> &mut Self
+    pub fn interval<I>(&mut self, interval: I) -> &mut Self
     where
-        A: Into<Interval>,
+        I: Into<Interval>,
     {
-        self.interval = a.into();
+        self.interval = interval.into();
         self
     }
 
@@ -143,8 +140,7 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
 
         Some(ThrottlePool {
             throttles: Mutex::new(HashMap::new()),
-            interval: self.interval.clone(),
-            concurrent: self.concurrent,
+            throttle_builder: Throttle::builder(),
         })
     }
 }

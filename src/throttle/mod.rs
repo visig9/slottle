@@ -386,14 +386,14 @@ impl ThrottleBuilder {
     ///         Duration::from_secs(2),
     ///     ));
     /// ```
-    pub fn interval<A>(&mut self, a: A) -> &mut Self
+    pub fn interval<I>(&mut self, interval: I) -> &mut Self
     where
-        A: Into<Interval>,
+        I: Into<Interval>,
     {
-        let a = a.into();
+        let interval = interval.into();
 
-        self.interval_fn = a.interval_fn;
-        self.log_size = a.log_size;
+        self.interval_fn = interval.interval_fn;
+        self.log_size = interval.log_size;
         self
     }
 
@@ -406,7 +406,7 @@ impl ThrottleBuilder {
     /// Create a new [`Throttle`] with current configuration.
     ///
     /// Return `None` if `concurrent` == `0` or larger than `isize::MAX`.
-    pub fn build(&mut self) -> Option<Throttle> {
+    pub fn build(&self) -> Option<Throttle> {
         use std::convert::TryInto;
 
         if self.concurrent == 0 {

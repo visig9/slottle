@@ -131,7 +131,7 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     /// Create a new [`ThrottlePool`] with current configuration.
     ///
     /// Return `None` if `concurrent` == `0` or larger than `isize::MAX`.
-    pub fn build(&mut self) -> Option<ThrottlePool<K>> {
+    pub fn build(&self) -> Option<ThrottlePool<K>> {
         // check the configurations can initialize throttle properly.
         Throttle::builder()
             .interval(self.interval.clone())

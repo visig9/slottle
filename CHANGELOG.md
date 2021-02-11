@@ -6,6 +6,7 @@
 
 - [BREAKING]: Rename `Algorithm` to `Interval` for easier to understand.
 - [BREAKING]: Rename `run_failable` to `run_fallible`.
+- Make `ThrottleBuilder::build()` & `ThrottlePoolBuilder::build()` use `&self` rather than `&mut self`.
 
 
 

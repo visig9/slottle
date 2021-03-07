@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `ThrottlePool`: `ThrottlePool` not pass configurations to `Throttle` correctly.
+
+
+
+## [0.4.0] - 2021-02-11
+
 ### Changed
 
 - [BREAKING]: Rename `Algorithm` to `Interval` for easier to understand.

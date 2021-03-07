@@ -132,15 +132,16 @@ impl<K: Hash + Eq> ThrottlePoolBuilder<K> {
     ///
     /// Return `None` if `concurrent` == `0` or larger than `isize::MAX`.
     pub fn build(&self) -> Option<ThrottlePool<K>> {
+        let mut throttle_builder = Throttle::builder();
+        throttle_builder.interval(self.interval.clone());
+        throttle_builder.concurrent(self.concurrent);
+
         // check the configurations can initialize throttle properly.
-        Throttle::builder()
-            .interval(self.interval.clone())
-            .concurrent(self.concurrent)
-            .build()?;
+        throttle_builder.build()?;
 
         Some(ThrottlePool {
             throttles: Mutex::new(HashMap::new()),
-            throttle_builder: Throttle::builder(),
+            throttle_builder: throttle_builder,
         })
     }
 }

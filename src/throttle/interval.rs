@@ -60,8 +60,6 @@ pub fn fibonacci(base: Duration, max: Duration) -> Interval {
     let unit_fibonacci_seq = get_unit_fibonacci_seq(max_ratio);
     let len = unit_fibonacci_seq.len();
 
-    println!("{:#?}", unit_fibonacci_seq);
-
     Interval::new(
         move |log| {
             let failure_count = log.unwrap().failure_count();

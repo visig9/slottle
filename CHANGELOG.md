@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+
+
+## [0.4.2] - 2021-03-07
+
 ### Fixed
 
 - Remove debugging `println`.

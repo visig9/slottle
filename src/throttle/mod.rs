@@ -609,7 +609,7 @@ impl Interval {
     ///
     /// // following algorithm produce random duration from 0 ~ 10ms
     /// let algo = Interval::new(|_| Duration::from_millis(10), 0)
-    ///     .modify(|dur| dur * rand::random());
+    ///     .modify(|dur| dur.mul_f64(rand::random()));
     /// ```
     pub fn modify<F>(self, f: F) -> Interval
     where

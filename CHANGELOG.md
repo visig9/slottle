@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+
+
+## [0.4.1] - 2021-03-07
+
 ### Fixed
 
 - `ThrottlePool`: `ThrottlePool` not pass configurations to `Throttle` correctly.
